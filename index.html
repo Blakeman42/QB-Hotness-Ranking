@@ -423,16 +423,68 @@
   .detail-body{display:none;}
   .detail-body.on{display:block;}
 
+  /* No fixed aspect and no object-fit: the stage simply takes the shape of the
+     photo. That means no letterbox bars, nothing cropped, and no ambiguity about
+     whether you are seeing the whole picture. */
   .photo-stage{
     position:relative;
-    background:#F1EAEC;
-    aspect-ratio:4/3;
     overflow:hidden;
+    background:#F1EAEC;
+    touch-action:pan-y;
+    cursor:pointer;
   }
   .photo-stage img{
-    width:100%; height:100%;
-    object-fit:contain;   /* show the whole photo - never clip the subject */
+    width:100%;
+    height:auto;
     display:block;
+  }
+  .photo-stage img.ph-out-left{animation:phOutLeft .16s ease-in forwards;}
+  .photo-stage img.ph-out-right{animation:phOutRight .16s ease-in forwards;}
+  .photo-stage img.ph-in-right{animation:phInRight .2s ease-out;}
+  .photo-stage img.ph-in-left{animation:phInLeft .2s ease-out;}
+  @keyframes phOutLeft{to{transform:translateX(-8%); opacity:0;}}
+  @keyframes phOutRight{to{transform:translateX(8%); opacity:0;}}
+  @keyframes phInRight{from{transform:translateX(8%); opacity:0;} to{transform:none; opacity:1;}}
+  @keyframes phInLeft{from{transform:translateX(-8%); opacity:0;} to{transform:none; opacity:1;}}
+
+  /* which of the player's photos you are on */
+  .photo-dots{
+    position:absolute;
+    bottom:10px; left:50%;
+    transform:translateX(-50%);
+    display:flex; gap:6px;
+    pointer-events:none;
+  }
+  .photo-dots i{
+    width:7px; height:7px;
+    border-radius:50%;
+    background:rgba(255,255,255,.6);
+    box-shadow:0 0 0 1px rgba(23,18,26,.22);
+    transition:width .18s, background .18s;
+  }
+  .photo-dots i.on{background:#fff; width:20px; border-radius:4px;}
+
+  /* whole-pane slide when moving between quarterbacks */
+  .detail-pane{
+    will-change:transform, opacity;
+    /* claim horizontal gestures for the swipe handler while leaving vertical
+       scrolling to the browser; without this the scroller cancels the pointer */
+    touch-action:pan-y;
+  }
+  .detail-pane.pane-out-left{animation:paneOutLeft .17s ease-in forwards;}
+  .detail-pane.pane-out-right{animation:paneOutRight .17s ease-in forwards;}
+  .detail-pane.pane-in-right{animation:paneInRight .22s ease-out;}
+  .detail-pane.pane-in-left{animation:paneInLeft .22s ease-out;}
+  @keyframes paneOutLeft{to{transform:translateX(-22%); opacity:0;}}
+  @keyframes paneOutRight{to{transform:translateX(22%); opacity:0;}}
+  @keyframes paneInRight{from{transform:translateX(22%); opacity:0;} to{transform:none; opacity:1;}}
+  @keyframes paneInLeft{from{transform:translateX(-22%); opacity:0;} to{transform:none; opacity:1;}}
+
+  .swipe-note{
+    font-size:11.5px;
+    color:var(--ash);
+    text-align:center;
+    padding:9px 16px 0;
   }
   .stage-nav{
     position:absolute;
@@ -451,19 +503,7 @@
   .stage-nav.prev{left:10px;}
   .stage-nav.next{right:10px;}
 
-  .flip-btn{
-    position:absolute;
-    bottom:10px; right:10px;
-    border:0;
-    background:rgba(23,18,26,.72);
-    color:#fff;
-    font-size:12px;
-    font-weight:600;
-    padding:7px 12px;
-    border-radius:100px;
-    backdrop-filter:blur(6px);
-  }
-  .flip-btn:hover{background:rgba(23,18,26,.88);}
+
 
   .detail-head{
     padding:18px 20px 0;
@@ -662,7 +702,17 @@
     -webkit-overflow-scrolling:touch;
     padding-bottom:calc(18px + env(safe-area-inset-bottom));
   }
-  .sheet .photo-stage{aspect-ratio:4/3; max-height:40dvh;}
+  .sheet .photo-stage{display:flex; justify-content:center;}
+  .sheet .stage-nav{display:none;}  /* swipe covers this on touch */
+  /* Cap the photo by shrinking the element itself rather than letterboxing with
+     object-fit, so the rendered box always equals the photo's own shape and no
+     part of the subject is ever hidden. */
+  .sheet .photo-stage img{
+    max-width:100%;
+    max-height:52dvh;
+    width:auto;
+    height:auto;
+  }
   /* the sheet bar already names the player, so drop the repeat inside the body */
   .sheet-scroll .detail-head{display:none;}
   .sheet-scroll .rank-readout{padding-top:18px;}
@@ -1311,14 +1361,23 @@ const PLAYERS = {"cam_ward": {"name": "Cam Ward", "team": "Tennessee Titans", "p
     const above = i > 0 ? PLAYERS[order[i-1]].name : 'Nobody — this is your #1';
     const below = i < N-1 ? PLAYERS[order[i+1]].name : 'Nobody — this is your last';
     const multi = p.photos.length > 1;
+    const dots = multi
+      ? '<div class="photo-dots" id="photoDots">' +
+          p.photos.map((_, k) => '<i class="' + (k === photoIndex ? 'on' : '') + '"></i>').join('') +
+        '</div>'
+      : '';
 
     return '' +
-      '<div class="photo-stage">' +
+      '<div class="photo-stage" id="photoStage">' +
         '<img id="stageImg" alt="' + esc(p.name) + '">' +
         '<button class="stage-nav prev" id="stagePrev" aria-label="Previous quarterback">&#8249;</button>' +
         '<button class="stage-nav next" id="stageNext" aria-label="Next quarterback">&#8250;</button>' +
-        (multi ? '<button class="flip-btn" id="flipBtn">Other photo</button>' : '') +
+        dots +
       '</div>' +
+      '<p class="swipe-note">' +
+        (multi ? 'Tap the photo for the other shot. ' : '') +
+        'Swipe below the photo for the next quarterback.' +
+      '</p>' +
       '<div class="detail-head">' +
         '<h2 class="detail-name">' + esc(p.name) + '</h2>' +
         '<p class="detail-team">' + esc(p.team) + '</p>' +
@@ -1350,7 +1409,7 @@ const PLAYERS = {"cam_ward": {"name": "Cam Ward", "team": "Tennessee Titans", "p
   function renderDetail(){
     if(!selectedId) return;
     const host = isDesktop() ? detailBody : sheetScroll;
-    host.innerHTML = detailMarkup(selectedId);
+    host.innerHTML = '<div class="detail-pane">' + detailMarkup(selectedId) + '</div>';
 
     if(isDesktop()){
       detailEmpty.style.display = 'none';
@@ -1368,16 +1427,28 @@ const PLAYERS = {"cam_ward": {"name": "Cam Ward", "team": "Tennessee Titans", "p
     const img = host.querySelector('#stageImg');
     if(img) img.src = p.photos[photoIndex % p.photos.length];
 
-    const flip = host.querySelector('#flipBtn');
-    if(flip) flip.addEventListener('click', () => {
-      photoIndex = (photoIndex + 1) % p.photos.length;
-      img.src = p.photos[photoIndex];
-    });
-
     const prev = host.querySelector('#stagePrev');
     const next = host.querySelector('#stageNext');
-    if(prev) prev.addEventListener('click', () => hop(-1));
-    if(next) next.addEventListener('click', () => hop(1));
+    if(prev) prev.addEventListener('click', e => { e.stopPropagation(); hop(-1); });
+    if(next) next.addEventListener('click', e => { e.stopPropagation(); hop(1); });
+
+    const stage = host.querySelector('#photoStage');
+
+    // --- the photo itself: tap or swipe cycles that player's shots ---
+    if(stage){
+      if(p.photos.length > 1){
+        stage.addEventListener('click', () => showPhoto(photoIndex + 1, 1));
+      }
+      attachSwipe(stage, dir => {
+        if(p.photos.length > 1) showPhoto(photoIndex + dir, dir);
+      });
+    }
+
+    // --- anywhere below the photo: swipe moves to the next quarterback ---
+    const pane = host.querySelector('.detail-pane');
+    if(pane){
+      attachSwipe(pane, dir => hop(dir), stage);
+    }
 
     const slider = host.querySelector('#rankSlider');
     if(slider){
@@ -1403,17 +1474,126 @@ const PLAYERS = {"cam_ward": {"name": "Cam Ward", "team": "Tennessee Titans", "p
     if(top) top.addEventListener('click', () => moveTo(id, 0));
   }
 
+  // ---------- swipe helper ----------
+  // Calls back with -1 (swiped right / go back) or +1 (swiped left / go forward).
+  // `exclude` is an element whose own swipes should be ignored here, so the photo
+  // and the area below it can respond to the same gesture differently.
+  function attachSwipe(el, onSwipe, exclude){
+    let x0 = null, y0 = null, dx = 0, dy = 0, live = false;
+
+    el.addEventListener('pointerdown', e => {
+      if(exclude && exclude.contains(e.target)) return;
+      // never hijack a gesture aimed at a real control
+      if(e.target.closest('input, button, a, .rank-slider') && !e.target.closest('#photoStage')) return;
+      x0 = e.clientX; y0 = e.clientY; dx = 0; dy = 0; live = true;
+    });
+
+    el.addEventListener('pointermove', e => {
+      if(!live) return;
+      dx = e.clientX - x0;
+      dy = e.clientY - y0;
+      // a mostly-vertical drag is a scroll, not a swipe
+      if(Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 14) live = false;
+    });
+
+    function finish(){
+      if(!live){ x0 = null; return; }
+      live = false;
+      if(Math.abs(dx) >= 45 && Math.abs(dx) > Math.abs(dy)){
+        onSwipe(dx < 0 ? 1 : -1);
+      }
+      x0 = null;
+    }
+    el.addEventListener('pointerup', finish);
+    el.addEventListener('pointercancel', () => { live = false; x0 = null; });
+  }
+
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---------- photo cycling, animated ----------
+  let photoBusy = false;
+  function showPhoto(nextIdx, dir){
+    if(!selectedId || photoBusy) return;
+    const p = PLAYERS[selectedId];
+    const n = p.photos.length;
+    if(n < 2) return;
+    const target = ((nextIdx % n) + n) % n;
+    if(target === photoIndex) return;
+
+    const host = isDesktop() ? detailBody : sheetScroll;
+    const img = host.querySelector('#stageImg');
+    const dotsBox = host.querySelector('#photoDots');
+    if(!img) return;
+
+    const paint = () => {
+      photoIndex = target;
+      img.src = p.photos[photoIndex];
+      if(dotsBox){
+        [...dotsBox.children].forEach((d, k) => d.classList.toggle('on', k === photoIndex));
+      }
+    };
+
+    if(reduceMotion){ paint(); return; }
+
+    photoBusy = true;
+    img.className = dir > 0 ? 'ph-out-left' : 'ph-out-right';
+    setTimeout(() => {
+      paint();
+      img.className = dir > 0 ? 'ph-in-right' : 'ph-in-left';
+      setTimeout(() => { img.className = ''; photoBusy = false; }, 210);
+    }, 165);
+  }
+
+  // ---------- move between quarterbacks, animated ----------
+  let hopBusy = false;
   function hop(delta){
-    if(!selectedId) return;
+    if(!selectedId || hopBusy) return;
     const i = order.indexOf(selectedId);
     const j = clamp(i + delta, 0, N-1);
-    if(j === i) return;
-    select(order[j]);
-    const li = rows.get(order[j]);
-    const r = li.getBoundingClientRect();
-    if(r.top < 80 || r.bottom > window.innerHeight - 80){
-      li.scrollIntoView({block:'center', behavior:'smooth'});
+    if(j === i){
+      // nudge visually so a swipe at either end does not feel broken
+      const host = isDesktop() ? detailBody : sheetScroll;
+      const pane = host.querySelector('.detail-pane');
+      if(pane && !reduceMotion){
+        pane.animate(
+          [{transform:'none'},
+           {transform:'translateX(' + (delta > 0 ? '-3%' : '3%') + ')'},
+           {transform:'none'}],
+          {duration:220, easing:'ease-out'}
+        );
+      }
+      return;
     }
+
+    const nextId = order[j];
+    const host = isDesktop() ? detailBody : sheetScroll;
+    const pane = host.querySelector('.detail-pane');
+
+    const commit = () => {
+      selectedId = nextId;
+      photoIndex = 0;
+      rows.forEach((el, key) => el.classList.toggle('selected', key === nextId));
+      renderDetail();
+      if(!isDesktop()) { sheetScroll.scrollTop = 0; }
+      const fresh = (isDesktop() ? detailBody : sheetScroll).querySelector('.detail-pane');
+      if(fresh && !reduceMotion){
+        fresh.classList.add(delta > 0 ? 'pane-in-right' : 'pane-in-left');
+        setTimeout(() => fresh.classList.remove('pane-in-right','pane-in-left'), 240);
+      }
+      // keep the list in step with what the panel is showing
+      const li = rows.get(nextId);
+      const r = li.getBoundingClientRect();
+      if(r.top < 80 || r.bottom > window.innerHeight - 80){
+        li.scrollIntoView({block:'center', behavior:'smooth'});
+      }
+      hopBusy = false;
+    };
+
+    if(!pane || reduceMotion){ commit(); return; }
+
+    hopBusy = true;
+    pane.classList.add(delta > 0 ? 'pane-out-left' : 'pane-out-right');
+    setTimeout(commit, 175);
   }
 
   // ---------- mobile sheet ----------
