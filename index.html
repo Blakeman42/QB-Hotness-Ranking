@@ -89,10 +89,11 @@
     font-family:var(--display);
     font-optical-sizing:auto;
     font-weight:700;
-    font-size:clamp(38px, 7vw, 68px);
-    line-height:0.98;
+    font-size:clamp(36px, 6.6vw, 68px);
+    line-height:1.06;
     letter-spacing:-.02em;
     margin:0 0 14px;
+    padding-bottom:2px;
   }
   .masthead h1 em{
     font-style:italic;
@@ -126,6 +127,12 @@
     padding:14px 0 12px;
     border-bottom:1px solid var(--line);
     margin-bottom:4px;
+    transition:box-shadow .18s;
+  }
+  /* once rows start sliding underneath, lift the bar so it reads as a layer
+     rather than as a row whose text has been chopped in half */
+  .controls.stuck{
+    box-shadow:0 6px 16px -8px rgba(23,18,26,.28);
   }
   .controls-row{
     display:flex;
@@ -266,6 +273,7 @@
     width:52px; height:52px;
     border-radius:10px;
     object-fit:cover;
+    object-position:50% 18%;   /* headshots sit high in frame; keep the face */
     background:var(--line-2);
     display:block;
   }
@@ -278,8 +286,15 @@
     text-align:left;
     padding:2px 0;
     color:inherit;
-    display:block;
+    /* stretch to the full row height: this is the main tap target for opening
+       a player, so it needs a comfortable hit area, not just the text bounds */
+    align-self:stretch;
+    min-height:44px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
   }
+  .who .name, .who .team{max-width:100%;}
   .who .name{
     display:block;
     font-size:15.5px;
@@ -410,13 +425,13 @@
 
   .photo-stage{
     position:relative;
-    background:#F3EDEF;
+    background:#F1EAEC;
     aspect-ratio:4/3;
     overflow:hidden;
   }
   .photo-stage img{
     width:100%; height:100%;
-    object-fit:cover;
+    object-fit:contain;   /* show the whole photo - never clip the subject */
     display:block;
   }
   .stage-nav{
@@ -647,7 +662,7 @@
     -webkit-overflow-scrolling:touch;
     padding-bottom:calc(18px + env(safe-area-inset-bottom));
   }
-  .sheet .photo-stage{aspect-ratio:1/1; max-height:44dvh;}
+  .sheet .photo-stage{aspect-ratio:4/3; max-height:40dvh;}
   /* the sheet bar already names the player, so drop the repeat inside the body */
   .sheet-scroll .detail-head{display:none;}
   .sheet-scroll .rank-readout{padding-top:18px;}
@@ -809,6 +824,16 @@
     .dock{padding:10px 16px calc(10px + env(safe-area-inset-bottom));}
     .dock-text{display:none;}
     .dock .btn-primary{width:100%; padding:14px 22px;}
+  }
+
+  /* very small phones: buy back a few more pixels for the longest names */
+  @media (max-width:360px){
+    .shell{padding:0 12px 130px;}
+    .row{grid-template-columns:32px 42px minmax(0,1fr) auto; gap:8px;}
+    .rank{font-size:20px;}
+    .thumb{width:42px; height:42px;}
+    .who .name{font-size:15px;}
+    .who .team{font-size:12px;}
   }
 </style>
 </head>
@@ -1032,7 +1057,11 @@ const PLAYERS = {"cam_ward": {"name": "Cam Ward", "team": "Tennessee Titans", "p
         '</button>' +
       '</span>';
 
-    li.querySelector('.thumb').src = p.thumb;
+    // The bundled `thumb` field is a pre-cropped 84x61 that already clips the top
+    // of the head, and it looks soft when upscaled on a high-density phone screen.
+    // photos[0] is the full headshot and is already embedded, so it costs no extra
+    // download and gives a sharp, uncropped face.
+    li.querySelector('.thumb').src = p.photos[0] || p.thumb;
     li.querySelector('.name').textContent = p.name;
     li.querySelector('.team').textContent = p.team;
 
@@ -1619,6 +1648,20 @@ const PLAYERS = {"cam_ward": {"name": "Cam Ward", "team": "Tennessee Titans", "p
 
   // ---------- go ----------
   paint();
+
+  // Flag the sticky bar once content is passing underneath it.
+  (function(){
+    const bar = document.querySelector('.controls');
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;top:0;height:1px;width:1px;';
+    document.querySelector('main').prepend(probe);
+    if('IntersectionObserver' in window){
+      new IntersectionObserver(
+        ([e]) => bar.classList.toggle('stuck', !e.isIntersecting),
+        {threshold:0}
+      ).observe(probe);
+    }
+  })();
 })();
 </script>
 </body>
