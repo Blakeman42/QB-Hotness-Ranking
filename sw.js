@@ -1,53 +1,55 @@
-// Bump this version string any time you update index.html and push a new
-// version — that's what forces phones to fetch the fresh copy instead of
-// serving the old cached one.
-const CACHE_NAME = "qb-rankings-v7";
-const ASSETS = [
-  "./",
-  "./index.html",
-  "./manifest.json",
-  "./icon-192.png",
-  "./icon-512.png"
-];
+/* ---------------------------------------------------------------------------
+   QB Hotness Rankings - service worker REMOVAL shim
+   ---------------------------------------------------------------------------
+   Earlier versions of this site were a PWA. That service worker used a
+   cache-first strategy, so once installed it kept serving its own cached copy
+   of index.html and every new upload appeared to change nothing.
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-  );
+   Deleting sw.js from the repo is not reliable on its own, and a fix placed
+   inside index.html cannot help either: the old worker intercepts the request
+   and the new index.html is never fetched.
+
+   The browser DOES re-check sw.js itself on navigation, byte for byte. So this
+   file replaces the old worker, wipes every cache it created, unregisters
+   itself, and reloads any open tab. It has no fetch handler, so while it is
+   briefly alive all requests go straight to the network.
+
+   Upload this alongside index.html. It is safe to leave in place forever, and
+   safe to delete once everyone has loaded the site at least once.
+--------------------------------------------------------------------------- */
+
+self.addEventListener('install', function(){
+  // Take over immediately instead of waiting for existing tabs to close.
   self.skipWaiting();
 });
 
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      )
-    )
-  );
-  self.clients.claim();
+self.addEventListener('activate', function(event){
+  event.waitUntil((async function(){
+    try {
+      // 1. Delete every cache on this origin, including the old qb-rankings-v* ones.
+      if (self.caches && caches.keys) {
+        var keys = await caches.keys();
+        await Promise.all(keys.map(function(k){ return caches.delete(k); }));
+      }
+
+      // 2. Claim open pages so the reload below actually reaches them.
+      if (self.clients && self.clients.claim) {
+        await self.clients.claim();
+      }
+
+      // 3. Remove this registration so no worker remains in control.
+      await self.registration.unregister();
+
+      // 4. Reload open tabs so they fetch the real index.html from the network.
+      var windows = await self.clients.matchAll({ type: 'window' });
+      windows.forEach(function(client){
+        if (client.navigate) { client.navigate(client.url); }
+      });
+    } catch (err) {
+      // Nothing useful to do here; the registration is going away regardless.
+    }
+  })());
 });
 
-// Cache-first for our own assets, network-first fallback for everything else
-// (e.g. Google Fonts) so the app still opens instantly with no signal.
-self.addEventListener("fetch", (event) => {
-  const isOwnAsset = ASSETS.some((asset) =>
-    event.request.url.endsWith(asset.replace("./", "/"))
-  ) || event.request.url.endsWith("/");
-
-  if (isOwnAsset) {
-    event.respondWith(
-      caches.match(event.request).then((cached) => cached || fetch(event.request))
-    );
-  } else {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          return response;
-        })
-        .catch(() => caches.match(event.request))
-    );
-  }
-});
+/* Deliberately no 'fetch' listener. Without one the browser bypasses this
+   worker for network requests, so nothing can be served from a stale cache. */

@@ -432,11 +432,17 @@
     background:#F1EAEC;
     touch-action:pan-y;
     cursor:pointer;
+    /* centre on both axes everywhere, so the photo is never shoved to one side */
+    display:flex;
+    align-items:center;
+    justify-content:center;
   }
   .photo-stage img{
-    width:100%;
+    max-width:100%;
+    width:auto;
     height:auto;
     display:block;
+    margin:0 auto;
   }
   .photo-stage img.ph-out-left{animation:phOutLeft .16s ease-in forwards;}
   .photo-stage img.ph-out-right{animation:phOutRight .16s ease-in forwards;}
@@ -486,22 +492,29 @@
     text-align:center;
     padding:9px 16px 0;
   }
-  .stage-nav{
-    position:absolute;
-    top:50%;
-    transform:translateY(-50%);
-    width:38px; height:38px;
-    border-radius:50%;
-    border:0;
-    background:rgba(255,255,255,.92);
-    color:var(--ink);
-    box-shadow:var(--shadow-1);
-    font-size:17px;
-    display:flex; align-items:center; justify-content:center;
+  /* Player navigation sits below the photo, never on top of it: arrows over the
+     image read as "change picture", which is not what they do. */
+  .player-nav{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    padding:2px 20px 0;
   }
-  .stage-nav:hover{background:#fff;}
-  .stage-nav.prev{left:10px;}
-  .stage-nav.next{right:10px;}
+  .pnav{
+    border:1px solid var(--line);
+    background:var(--paper-2);
+    color:var(--ink-2);
+    font-size:13px;
+    font-weight:600;
+    padding:10px 8px;
+    border-radius:var(--r-md);
+    min-height:44px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .pnav:hover:not(:disabled){background:var(--pink-wash); color:var(--pink-deep); border-color:var(--pink);}
+  .pnav:disabled{opacity:.4; cursor:not-allowed;}
 
 
 
@@ -702,8 +715,8 @@
     -webkit-overflow-scrolling:touch;
     padding-bottom:calc(18px + env(safe-area-inset-bottom));
   }
-  .sheet .photo-stage{display:flex; justify-content:center;}
-  .sheet .stage-nav{display:none;}  /* swipe covers this on touch */
+  /* base .photo-stage already centres; the sheet only adds a height cap */
+
   /* Cap the photo by shrinking the element itself rather than letterboxing with
      object-fit, so the rendered box always equals the photo's own shape and no
      part of the subject is ever hidden. */
@@ -857,6 +870,7 @@
   /* ============ narrow screens ============ */
   @media (max-width:600px){
     .shell{padding:0 16px 130px;}
+    .player-nav{padding:2px 16px 0;}
     .masthead{padding:32px 0 20px;}
 
     /* the lede already explains dragging, so the inline hint can go */
@@ -1370,14 +1384,19 @@ const PLAYERS = {"cam_ward": {"name": "Cam Ward", "team": "Tennessee Titans", "p
     return '' +
       '<div class="photo-stage" id="photoStage">' +
         '<img id="stageImg" alt="' + esc(p.name) + '">' +
-        '<button class="stage-nav prev" id="stagePrev" aria-label="Previous quarterback">&#8249;</button>' +
-        '<button class="stage-nav next" id="stageNext" aria-label="Next quarterback">&#8250;</button>' +
         dots +
       '</div>' +
       '<p class="swipe-note">' +
-        (multi ? 'Tap the photo for the other shot. ' : '') +
-        'Swipe below the photo for the next quarterback.' +
+        (multi ? 'Tap or swipe the photo to see the other shot.' : 'Only one shot of this one.') +
       '</p>' +
+      '<div class="player-nav">' +
+        '<button class="pnav prev" id="stagePrev"' + (i === 0 ? ' disabled' : '') + '>' +
+          '<span aria-hidden="true">&#8249;</span> Previous player' +
+        '</button>' +
+        '<button class="pnav next" id="stageNext"' + (i === N-1 ? ' disabled' : '') + '>' +
+          'Next player <span aria-hidden="true">&#8250;</span>' +
+        '</button>' +
+      '</div>' +
       '<div class="detail-head">' +
         '<h2 class="detail-name">' + esc(p.name) + '</h2>' +
         '<p class="detail-team">' + esc(p.team) + '</p>' +
@@ -1842,6 +1861,37 @@ const PLAYERS = {"cam_ward": {"name": "Cam Ward", "team": "Tennessee Titans", "p
       ).observe(probe);
     }
   })();
+})();
+</script>
+<script>
+// ---------------------------------------------------------------------------
+// Evict the old PWA service worker.
+// Earlier versions of this page registered sw.js with a cache-first strategy.
+// That worker stays installed on the device and keeps serving its cached copy
+// of index.html, so uploading a new file appears to change nothing. This
+// unregisters any worker and deletes its caches, then reloads once so the
+// fresh page is what actually renders. Safe to leave in permanently.
+// ---------------------------------------------------------------------------
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.getRegistrations().then(function(regs){
+    if(!regs.length) return;
+    Promise.all(regs.map(function(r){ return r.unregister(); }))
+      .then(function(){
+        if(window.caches && caches.keys){
+          return caches.keys().then(function(keys){
+            return Promise.all(keys.map(function(k){ return caches.delete(k); }));
+          });
+        }
+      })
+      .then(function(){
+        if(!sessionStorage.getItem('qhSwPurged')){
+          sessionStorage.setItem('qhSwPurged', '1');
+          location.reload();
+        }
+      })
+      .catch(function(){ /* nothing more we can do from here */ });
+  }).catch(function(){});
 })();
 </script>
 </body>
