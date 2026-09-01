@@ -1,7 +1,7 @@
 // Bump this version string any time you update index.html and push a new
 // version — that's what forces phones to fetch the fresh copy instead of
 // serving the old cached one.
-const CACHE_NAME = "qb-rankings-v5";
+const CACHE_NAME = "qb-rankings-v7";
 const ASSETS = [
   "./",
   "./index.html",

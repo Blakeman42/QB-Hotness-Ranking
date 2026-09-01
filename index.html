@@ -276,7 +276,19 @@
 (function(){
   "use strict";
 
-  let order = Object.keys(PLAYERS).sort((a,b) => PLAYERS[a].name.localeCompare(PLAYERS[b].name));
+  // Start from a random order, not alphabetical. An alphabetical default meant a
+  // submitter who never dragged anyone silently submitted the alphabet, which is
+  // indistinguishable from a real opinion once it's in the sheet.
+  function shuffled(arr){
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  let order = shuffled(Object.keys(PLAYERS));
   let rowEls = new Map();
   let currentId = null;
   let currentPhoto = 0;
@@ -383,31 +395,85 @@
     toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
   }
 
+  // ---- duplicate submission guard ----
+  // Two identical boards landed in the sheet 8 seconds apart, so guard both cases:
+  // a double-tap while a request is in flight, and re-sending an unchanged board later.
+  let submitting = false;
+
+  function fingerprint(name, ids){
+    return (name || 'Anonymous').trim().toLowerCase() + '|' + ids.join(',');
+  }
+  function alreadySent(fp){
+    try {
+      const sent = JSON.parse(localStorage.getItem('qhSent') || '[]');
+      return sent.includes(fp);
+    } catch (err) { return false; }   // private mode / storage disabled
+  }
+  function rememberSent(fp){
+    try {
+      const sent = JSON.parse(localStorage.getItem('qhSent') || '[]');
+      sent.push(fp);
+      localStorage.setItem('qhSent', JSON.stringify(sent.slice(-20)));
+    } catch (err) { /* nothing to do if storage is unavailable */ }
+  }
+
   document.getElementById('exportBtn').addEventListener('click', exportRankings);
-  function exportRankings(){
+  async function exportRankings(){
+    if (submitting) return;                     // swallow double-taps
     const names = order.map(id => PLAYERS[id].name);
     const lines = order.map((id, i) => (i+1) + '. ' + PLAYERS[id].name + ' (' + PLAYERS[id].team + ')');
 
-    // Local download, same as before.
+    // Submit to the shared Sheet FIRST — triggering the download below can abort
+    // an in-flight request, so the upload has to finish before we hand off the file.
+    if (SHEET_ENDPOINT_URL) {
+      const submitterName = window.prompt('Name for this submission (shown in the shared sheet):', '');
+      const fp = fingerprint(submitterName, order);
+
+      if (alreadySent(fp)) {
+        const again = window.confirm(
+          'You already submitted this exact board under that name.\n\nSend it again anyway?'
+        );
+        if (!again) {
+          showToast('Already submitted — not sent again');
+          return;
+        }
+      }
+
+      submitting = true;
+      showToast('Sending…');
+      try {
+        // text/plain is a CORS-safelisted content type, so this needs no preflight
+        // and we can still read the response to confirm the write actually landed.
+        const res = await fetch(SHEET_ENDPOINT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ name: submitterName || 'Anonymous', rankings: names }),
+          keepalive: true
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const result = await res.json().catch(() => ({}));
+        if (result.status === 'ok') {
+          rememberSent(fp);
+          showToast('Sent to the group sheet ✓');
+        } else {
+          throw new Error(result.message || 'unexpected response');
+        }
+      } catch (err) {
+        console.error('Sheet submission failed:', err);
+        showToast('Sheet upload failed — file still saved');
+      } finally {
+        submitting = false;
+      }
+    }
+
+    // Local download always happens, even if the upload failed.
     const blob = new Blob([lines.join('\n')], {type:'text/plain'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'qb-hotness-rankings.txt'; a.click();
     URL.revokeObjectURL(url);
 
-    // Also submit to the shared Google Sheet, if configured.
-    if (SHEET_ENDPOINT_URL) {
-      const submitterName = window.prompt('Name for this submission (shown in the shared sheet):', '');
-      fetch(SHEET_ENDPOINT_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ name: submitterName || 'Anonymous', rankings: names })
-      }).catch(() => { /* no-cors means we can't read the response anyway; ignore network errors silently */ });
-      showToast('Sent to the group sheet ✓');
-    } else {
-      showToast('Downloaded');
-    }
+    if (!SHEET_ENDPOINT_URL) showToast('Downloaded');
   }
 
   // ---------------- Spotlight ----------------
